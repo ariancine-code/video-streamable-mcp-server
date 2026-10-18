@@ -32,12 +32,12 @@ The result is the answer as text, plus structured content:
 
 ```json
 {
-  "videoId": "jNQXAC9IVRw",
-  "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+  "videoId": "DLzxrzFCyOs",
+  "url": "https://www.youtube.com/watch?v=DLzxrzFCyOs",
   "mode": "agentic",
   "model": "gemini-3.8-flash",
-  "answer": "The animals shown are elephants…",
-  "usage": { "inputTokens": 96, "outputTokens": 137, "thoughtTokens": 316, "toolUseTokens": 1475, "totalTokens": 2024 }
+  "answer": "This is the music video for Rick Astley's 1987 hit song \"Never Gonna Give You Up.\"",
+  "usage": { "inputTokens": 92, "outputTokens": 97, "thoughtTokens": 2424, "toolUseTokens": 781, "totalTokens": 3394 }
 }
 ```
 
