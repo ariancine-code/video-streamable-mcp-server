@@ -23,11 +23,11 @@ describe('server', () => {
     test(`${era}: advertises no change streams, since lists only change on deploy`, async () => {
       const client = await connect({ era });
 
-      expect(client.getServerCapabilities()).toMatchObject({
+      // No completions: nothing here takes a completable argument.
+      expect(client.getServerCapabilities()).toEqual({
         tools: { listChanged: false },
         prompts: { listChanged: false },
         resources: { listChanged: false, subscribe: false },
-        completions: {},
       });
     });
   }
@@ -59,8 +59,8 @@ describe('server', () => {
 test('oversized tool arguments are refused before any schema runs', async () => {
   const client = await connect();
   const result = await client.callTool({
-    name: 'echo',
-    arguments: { text: 'x', padding: Array.from({ length: 2_000 }, () => 0) },
+    name: 'watch_video',
+    arguments: { video: 'x', prompt: 'x', padding: Array.from({ length: 2_000 }, () => 0) },
   });
 
   expect(result.isError).toBe(true);

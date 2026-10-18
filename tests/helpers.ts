@@ -11,7 +11,7 @@ import { type App, createApp } from '../src/platform/app';
 import { type Config, parseConfig } from '../src/platform/config';
 import type { LogFields, Logger } from '../src/platform/logger';
 import { createServer, type Deps } from '../src/server';
-import type { Forecast, Place, WeatherService } from '../src/services/weather';
+import type { GeminiService, Usage, WatchOutcome } from '../src/services/gemini';
 import { fixtureServer } from './fixture';
 import { TEST_SETTINGS } from './settings';
 
@@ -43,41 +43,28 @@ export function memoryLogger(entries: LogEntry[] = [], context: LogFields = {}):
   };
 }
 
-export const KRAKOW: Place = {
-  name: 'Kraków',
-  region: 'Lesser Poland',
-  country: 'Poland',
-  latitude: 50.06,
-  longitude: 19.94,
-  timezone: 'Europe/Warsaw',
+export const USAGE: Usage = {
+  inputTokens: 90,
+  outputTokens: 40,
+  thoughtTokens: 300,
+  toolUseTokens: 2_600,
+  totalTokens: 3_030,
 };
 
-export function forecastFor(place: Place, days = 1): Forecast {
+/**
+ * A Gemini service that answers from memory: every watch completes with an answer naming the
+ * URL. Override `watch` per test.
+ */
+export function fakeGemini(overrides: Partial<GeminiService> = {}): GeminiService {
   return {
-    place,
-    current: {
-      time: '2026-10-05T12:00',
-      temperatureC: 14,
-      feelsLikeC: 12,
-      humidityPercent: 60,
-      windKmh: 7,
-      conditions: 'Overcast',
-    },
-    daily: Array.from({ length: days }, (_, day) => ({
-      date: `2026-10-0${5 + day}`,
-      minC: 8,
-      maxC: 18,
-      precipitationChancePercent: 10,
-      conditions: 'Partly cloudy',
-    })),
-  };
-}
-
-/** A weather service that answers from memory. Override any method per test. */
-export function fakeWeather(overrides: Partial<WeatherService> = {}): WeatherService {
-  return {
-    findPlace: async (query) => (query.startsWith('Krak') ? KRAKOW : undefined),
-    getForecast: async (place, days) => forecastFor(place, days),
+    model: 'gemini-test',
+    maxWaitMs: 600_000,
+    watch: async ({ url }): Promise<WatchOutcome> => ({
+      status: 'completed',
+      interactionId: 'interaction-1',
+      text: `Watched ${url}.`,
+      usage: USAGE,
+    }),
     ...overrides,
   };
 }
@@ -91,7 +78,7 @@ export function testDeps(overrides: Partial<Deps> = {}): TestDeps {
   return {
     config: testConfig(),
     logger: memoryLogger(logs),
-    weather: fakeWeather(),
+    gemini: fakeGemini(),
     ...overrides,
     logs,
   };

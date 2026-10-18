@@ -1,3 +1,4 @@
+import { waitUntil } from 'cloudflare:workers';
 import { type App, createApp } from './platform/app';
 import { ConfigError, parseConfig } from './platform/config';
 import { createLogger } from './platform/logger';
@@ -18,7 +19,7 @@ export default {
   async fetch(request, env) {
     if (!app && !misconfigured) {
       try {
-        app = createApp(parseConfig({ ...env }), { runtime: {} });
+        app = createApp(parseConfig({ ...env }), { runtime: { waitUntil } });
       } catch (error) {
         misconfigured = true;
         const message =

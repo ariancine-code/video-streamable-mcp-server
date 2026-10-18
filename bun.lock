@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "mcp-server-template",
+      "name": "video-mcp",
       "dependencies": {
         "@modelcontextprotocol/server": "2.3.0",
         "hono": "4.13.9",

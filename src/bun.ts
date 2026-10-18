@@ -25,7 +25,8 @@ export function serve(config: Config, app: App): Bun.Server<undefined> {
 if (import.meta.main) {
   const config = parseConfig(Bun.env);
   const logger = createLogger(config.logLevel);
-  const app = createApp(config, { runtime: {} });
+  // The process outlives each request, so pending work finishes without help.
+  const app = createApp(config, { runtime: { waitUntil: () => {} } });
   const server = serve(config, app);
 
   logger.info('MCP server listening', {

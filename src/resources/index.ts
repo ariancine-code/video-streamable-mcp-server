@@ -1,5 +1,4 @@
-import { guide } from './guide';
-import { weatherCodes } from './weather-codes';
+import type { Definition } from '../platform/primitives';
 
-/** Every resource and resource template. Add yours here. */
-export const resources = [guide, weatherCodes];
+/** Every resource and resource template. Add yours here. This server has none. */
+export const resources: Definition[] = [];

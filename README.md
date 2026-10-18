@@ -1,190 +1,124 @@
-# MCP Server Template
+# Video MCP Server
 
-This template is a remote [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server. It runs on **Bun** and on **Cloudflare Workers**. It uses the official [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk).
+A remote [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that lets agents watch YouTube videos. Give it a video and a question; Gemini watches the frames, listens to the audio, and answers.
 
-The server uses protocol version `2026-07-28`. It also accepts clients that use the 2025 protocol versions.
+It uses the [Gemini Interactions API](https://ai.google.dev/gemini-api/docs/video-understanding) and its **agentic video understanding**: the model reads the transcript first and loads only the parts of the video it needs, so a long video costs a fraction of the tokens of watching every frame.
 
-The template includes these functions:
+The server runs on **Cloudflare Workers** and on **Bun**. It is built on the [remote MCP server template](https://github.com/iceener/streamable-mcp-server-template) 2.1 and the official [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) 2.3.0, and speaks protocol `2026-07-28` as well as the 2025 versions.
 
-- Checks of the `Host` and `Origin` headers.
-- OAuth token checks. The server is an OAuth resource server. Your code does not receive the token.
-- An error policy. The server does not send internal error data to clients.
-- Tests that run on Bun and on Cloudflare Workers.
+> [!NOTE]
+> Answers come from a model. They can be incomplete or wrong, especially about small on-screen details. Each call spends Gemini tokens on the server's API key.
 
-The sample server gives weather data from [Open-Meteo](https://open-meteo.com). Open-Meteo does not require an API key. Replace the samples with your tools. Keep the other parts of the template.
+## The tool
 
-## Requirements
+### `watch_video`
 
-- [Bun](https://bun.sh) 1.4 or later.
-- Node.js 22.18 or later. The Wrangler commands and the smoke tests use Node.js.
+Watches a public YouTube video and answers a question about it: summarize it, find a moment, read what is on screen, describe what happens, check what someone said.
 
-## Start the server
+| Input | Required | Description |
+|---|---|---|
+| `video` | yes | A `youtube.com` or `youtu.be` URL (watch, shorts, live, embed), or the 11-character video ID |
+| `prompt` | yes | What to find out. Refer to moments as `MM:SS`: "What is on the slide at 12:30?" |
+| `mode` | | `agentic` or `static`. See below |
+| `start`, `end` | | Static mode: the section to watch, in seconds from the beginning |
+| `fps` | | Static mode: frames per second to look at, 0.1–30 (default 1) |
 
-1. Install the dependencies:
+| Mode | How Gemini watches | Best for |
+|---|---|---|
+| `agentic` (the default) | Reads the transcript, then looks only at the segments it needs | Long videos, specific questions, finding a moment |
+| `static` | Frames at a fixed rate over the whole clip, plus the audio | Short clips, visual detail, frame-by-frame questions. Required for `start`, `end` and `fps`, and chosen automatically when you pass one of them |
 
-   ```sh
-   bun install
-   ```
+The result is the answer as text, plus structured content:
 
-2. Start the server:
+```json
+{
+  "videoId": "jNQXAC9IVRw",
+  "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+  "mode": "agentic",
+  "model": "gemini-3.8-flash",
+  "answer": "The animals shown are elephants…",
+  "usage": { "inputTokens": 96, "outputTokens": 137, "thoughtTokens": 316, "toolUseTokens": 1475, "totalTokens": 2024 }
+}
+```
 
-   ```sh
-   bun run dev
-   ```
+A call takes from a few seconds to a few minutes. The server reports progress while Gemini works, so clients that reset their timeout on progress wait as long as needed. After 10 minutes the server cancels the call on Gemini's side and tells the model to ask a narrower question or watch a shorter section.
 
-The server URL is `http://127.0.0.1:3000/mcp`.
+**Limits** (Gemini's): public videos only, not private, unlisted, age-restricted or members-only ones. Free-tier API keys can watch 8 hours of YouTube a day; paid keys have no daily limit.
 
-To use the Cloudflare local runtime, run `bun run dev:worker`. The server URL is then `http://127.0.0.1:8787/mcp`.
+The server has no prompts and no resources.
 
 ## Connect a client
 
-Use the server URL and the Streamable HTTP transport.
+The server URL is the deployed Worker's `MCP_PUBLIC_URL`, for example `https://video-mcp.<subdomain>.workers.dev/mcp`. Every request needs the header `Authorization: Bearer <BEARER_TOKEN>`.
 
 | Client | Procedure |
 |---|---|
-| MCP Inspector | Run `bun run inspector`. Select **Streamable HTTP**. Enter the server URL. |
-| Claude Code | Run `claude mcp add --transport http weather http://127.0.0.1:3000/mcp`. |
-| VS Code | Add `{ "servers": { "weather": { "type": "http", "url": "http://127.0.0.1:3000/mcp" } } }` to `.vscode/mcp.json`. |
-| Cursor | Add `{ "mcpServers": { "weather": { "url": "http://127.0.0.1:3000/mcp" } } }` to `~/.cursor/mcp.json`. |
+| Claude Code | `claude mcp add --transport http video <server URL> --header "Authorization: Bearer <token>"` |
+| MCP Inspector | `bun run inspector`. Choose **Streamable HTTP**, enter the server URL, and add the `Authorization` header |
+| VS Code | Add `{ "servers": { "video": { "type": "http", "url": "<server URL>", "headers": { "Authorization": "Bearer <token>" } } } }` to `.vscode/mcp.json` |
 
-To test the connection, send a request. For example: *"What is the weather in Kraków this week?"*
-
-## Samples
-
-Each sample shows one procedure.
-
-| Sample | Type | Shows |
-|---|---|---|
-| `get-forecast` | Tool | A call to an external API through a service. It shows cancellation, progress, and errors that the model can correct. |
-| `echo` | Tool | The smallest complete tool: an input schema, an output schema, and annotations. |
-| `whoami` | Tool | How to read the identity of the verified caller. |
-| `confirm-action` | Tool | How to ask the user for approval during a call (`input_required`). The tool also requires an OAuth scope. |
-| `docs://server/guide` | Resource | A static resource. |
-| `weather://codes/{code}` | Resource template | How to list, read, and complete URIs from a template. |
-| `weather-briefing` | Prompt | Prompt arguments and argument completion. |
-
-## Project structure
-
-```
-src/
-  server.ts       Server identity, dependencies, token verification, extra routes, McpServer factory
-  settings.ts     Settings for your code, for example API keys
-  tools/          ┐
-  resources/      │ Your code. Each tool, resource, or prompt has one file.
-  prompts/        │ The index.ts file in each folder lists them.
-  services/       ┘ Clients for the external APIs that your tools use
-  platform/       Template code: configuration, HTTP pipeline, authentication, logs, defineTool
-  bun.ts          Entry point for Bun
-  worker.ts       Entry point for Cloudflare Workers
-tests/            Tests for each tool and service, and tests for the platform code
-scripts/          Smoke tests on real network sockets, and a local token issuer
-```
-
-You change `server.ts`, `settings.ts`, and the four folders. The `platform/` folder is template code. Do not change it unless it is necessary.
-
-`platform/` uses only a fixed set of names from `server.ts` and `settings.ts`. This lets you replace `platform/` with the version from a newer template. `server.ts` has hooks for settings, runtime resources (for example Workers KV), token verification, authorization server metadata, and extra HTTP routes.
-
-## Add a tool
-
-1. Create a file in `src/tools/`. For example:
-
-   ```ts
-   // src/tools/add.ts
-   import * as z from 'zod/v4';
-   import { defineTool } from '../platform/primitives';
-
-   export const add = defineTool(
-     'add',
-     {
-       description: 'Add two numbers.',
-       inputSchema: z.object({ a: z.number(), b: z.number() }),
-       outputSchema: z.object({ sum: z.number() }),
-       annotations: { readOnlyHint: true, openWorldHint: false },
-     },
-     ({ a, b }) => ({
-       content: [{ type: 'text', text: String(a + b) }],
-       structuredContent: { sum: a + b },
-     }),
-   );
-   ```
-
-2. Add the tool to the list in `src/tools/index.ts`.
-3. Create the test file `tests/tools/add.test.ts`. Use `tests/tools/echo.test.ts` as an example.
-
-`defineTool` has the same arguments as `server.registerTool` in the SDK. It also does these tasks:
-
-- It gives your dependencies (`deps`) to the handler as the last argument.
-- It makes sure that `structuredContent` agrees with `outputSchema` when you compile the code.
-- It records unexpected errors in the log. The model does not see these errors.
-
-For errors, progress, cancellation, user input, scopes, and tests, refer to [docs/tools.md](docs/tools.md).
-
-## Runtimes
-
-| | Bun | Cloudflare Workers |
-|---|---|---|
-| Start locally | `bun run dev` | `bun run dev:worker` |
-| Configuration | `.env` (refer to `.env.example`) | `vars` in `wrangler.jsonc`. Put local secrets in `.dev.vars`. |
-| Deployment | A host that runs Bun, behind HTTPS | `bun run deploy` |
-| Use it for | Long tasks, local processes, your own servers | Global hosting without server maintenance |
-
-The two runtimes use the same application. Only the entry point is different. For more data, refer to [docs/deploy.md](docs/deploy.md).
+Browser clients must also use an origin listed in `MCP_ALLOWED_ORIGIN_HOSTNAMES`.
 
 ## Configuration
 
-The server identity (name, version, and instructions) is in `src/server.ts`. The deployment settings are environment variables:
+The server's identity, instructions and dependencies are in `src/server.ts`. Its own settings are in `src/settings.ts`:
 
-| Variable | Default | Function |
+| Variable | Default | Description |
 |---|---|---|
-| `MCP_PUBLIC_URL` | `http://127.0.0.1:$PORT/mcp` | The public URL of the endpoint. Production requires it. |
-| `MCP_ALLOWED_HOSTS` | The host of the public URL, and the loopback hosts outside production | The `Host` headers that the server accepts |
-| `MCP_ALLOWED_ORIGIN_HOSTNAMES` | The host of the public URL, and the loopback hosts outside production | The browser `Origin` headers that the server accepts |
-| `AUTH_MODE` | `none` | `none`, `bearer`, or `oauth`. Production requires it. |
-| `BEARER_TOKEN` | | The shared token when `AUTH_MODE=bearer`. Store it as a secret. |
-| `OAUTH_*` | | The settings of your authorization server. Refer to [docs/auth.md](docs/auth.md). |
-| `MCP_LEGACY_MODE` | `stateless` | Set `reject` to accept only `2026-07-28` clients. |
-| `LOG_LEVEL` | `info` | `debug`, `info`, `warning`, or `error` |
+| `GEMINI_API_KEY` | | Required. A Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey). Sent to Gemini only, in the `x-goog-api-key` header. Store it as a secret |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | The model that watches. It must support agentic video processing: `gemini-4-argon`, `gemini-3.8-flash`, `gemini-3.6-flash` or `gemini-3.5-flash-lite` |
+| `GEMINI_API_URL` | `https://generativelanguage.googleapis.com/v1beta` | Change it only to point tests at a local mock |
 
-Put your own settings, for example API keys, in `src/settings.ts`. The server validates them together with the other settings. The file `.env.example` describes all variables.
+The other variables belong to the template: `MCP_PUBLIC_URL`, `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGIN_HOSTNAMES`, `MCP_LEGACY_MODE`, `MCP_MAX_REQUEST_BYTES`, `AUTH_MODE`, `BEARER_TOKEN`, `LOG_LEVEL`, `NODE_ENV`, `HOST` and `PORT`. `.env.example` describes each one.
 
-If the configuration is not valid, the server shows all problems at the same time:
-
-- Bun does not start.
-- A Worker records the problems in the log. It sends a 500 response to all requests until you correct the configuration.
+If a setting is invalid, the server reports every problem at once: Bun refuses to start, and a Worker logs the problems and answers every request with a generic 500.
 
 ## Authentication
 
-The server has three authentication modes:
+Production runs with `AUTH_MODE=bearer`: every client sends the same shared token, `BEARER_TOKEN`. Every call spends Gemini tokens, so the server must not be open to anyone who finds its URL. The token only gets callers in; the server never forwards it, and it calls Gemini with its own key.
 
-- `none`: The server accepts all requests.
-- `bearer`: All clients send the same secret token (`BEARER_TOKEN`) in the `Authorization` header.
-- `oauth`: The server is an OAuth resource server. The server publishes metadata that tells clients where your authorization server is. The server accepts only the tokens that your authorization server issued for this server URL.
+To sign users in through an identity provider instead, use the template's `AUTH_MODE=oauth`; the [template's auth guide](https://github.com/iceener/streamable-mcp-server-template/blob/main/docs/auth.md) explains how.
 
-The server can also be its own authorization server, for example in front of the OAuth of an external provider. For this procedure, refer to [docs/auth.md](docs/auth.md).
+## Deployment
 
-To test OAuth without an authorization server, run `bun run token`. This command starts a local key server. It shows a token and the settings to use. For real providers and scopes for each tool, refer to [docs/auth.md](docs/auth.md).
+See [docs/deploy.md](docs/deploy.md): the Worker, its two secrets, the first deploy and later ones.
 
-## Scripts
+## Development
 
-| Script | Function |
+Requirements: [Bun](https://bun.sh) 1.4 or later, and Node.js 22.18 or later.
+
+```sh
+bun install
+cp .env.example .env     # then set GEMINI_API_KEY
+bun run dev              # http://127.0.0.1:3000/mcp
+```
+
+To run on the Cloudflare runtime locally, put `GEMINI_API_KEY=…` in `.dev.vars` and run `bun run dev:worker` (`http://127.0.0.1:8787/mcp`).
+
+| Script | What it does |
 |---|---|
-| `bun run dev` | Starts the server on Bun. |
-| `bun run dev:worker` | Starts the server in the Cloudflare local runtime. |
-| `bun run check` | Does the type check, the lint check, and the tests. It also checks the generated Worker types. CI runs this script. |
-| `bun run test:smoke` | Starts the real server on Bun and on workerd, and sends requests through network sockets. It requires Node.js 22.18 or later. |
-| `bun run inspector` | Starts MCP Inspector. |
-| `bun run token` | Starts a local authorization server and shows a test token. |
-| `bun run deploy` | Deploys to Cloudflare with the `production` settings in `wrangler.jsonc`. |
-| `bun run types:worker` | Makes the Worker types again. Run it after you change `wrangler.jsonc`. |
+| `bun run check` | Type check, lint, tests, and a check that the generated Worker types are current |
+| `bun run test:smoke` | Starts the real server on Bun and on workerd, with Gemini replaced by a loopback mock |
+| `bun run deploy` | Deploys with `wrangler.production.jsonc` |
+| `bun run types:worker` | Regenerates the Worker types after a change to `wrangler.jsonc` |
 
-## Documentation
+```
+src/
+  server.ts               Identity, instructions and dependencies
+  settings.ts             GEMINI_API_KEY, GEMINI_MODEL, GEMINI_API_URL
+  tools/watch-video.ts    The tool, and the YouTube URL parser
+  services/gemini.ts      The Gemini Interactions API client
+  platform/               Template code, identical in every server built on it
+  bun.ts, worker.ts       Entry points
+tests/                    The tool, the service, the platform and the production config
+scripts/                  Smoke tests and the loopback Gemini mock
+```
 
-- [docs/architecture.md](docs/architecture.md): The path of a request through the server, and the function of each layer.
-- [docs/tools.md](docs/tools.md): How to write and test tools, resources, and prompts.
-- [docs/auth.md](docs/auth.md): OAuth, scopes, and other token checks.
-- [docs/deploy.md](docs/deploy.md): Cloudflare Workers and Bun in production.
-- [docs/troubleshooting.md](docs/troubleshooting.md): Frequent errors and their causes.
-- [CHANGELOG.md](CHANGELOG.md): The template versions, and the SDK version that each version uses.
+### How a watch works
+
+The service starts a background interaction (`background: true`) and polls it every few seconds until it finishes. Each upstream request is short, so no connection has to stay open while Gemini works, and progress goes to the client between polls. If the client cancels, a poll fails, or the 10-minute limit passes, the service cancels the interaction so Gemini stops working on it. On Workers, the `enable_request_signal` compatibility flag and `waitUntil` make that work even when the client simply disconnects; [docs/deploy.md](docs/deploy.md#long-calls) explains.
+
+Static clips send `start_offset` and `end_offset` as duration strings (`"90s"`). The API rejects plain numbers, although its documentation shows them; the loopback mock rejects them too, so the smoke tests catch a regression.
 
 ## License
 

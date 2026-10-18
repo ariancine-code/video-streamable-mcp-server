@@ -17,47 +17,64 @@ import { createJwtVerifier } from './platform/jwt';
 import type { Logger } from './platform/logger';
 import { prompts } from './prompts';
 import { resources } from './resources';
-import { createWeatherService, type WeatherService } from './services/weather';
+import { createGeminiService, type GeminiService } from './services/gemini';
 import { tools } from './tools';
 
 /** Who this server is. Change every field when you start from the template. */
 export const serverInfo = {
-  name: 'mcp-server-template',
-  title: 'MCP Server Template',
-  version: '2.1.0',
-  description: 'Weather forecasts, plus a reference set of MCP tools, resources and prompts.',
-  websiteUrl: 'https://github.com/iceener/streamable-mcp-server-template',
+  name: 'video-mcp',
+  title: 'Video',
+  version: '1.0.0',
+  description:
+    'Watch YouTube videos with Gemini and answer questions about what is seen and heard.',
+  websiteUrl: 'https://github.com/iceener/video-streamable-mcp-server',
 };
 
 /** Sent to clients on connect. Many hosts add it to the model's system prompt. */
 const instructions =
-  'Use get-forecast for weather questions. Read docs://server/guide for what each tool does.';
+  'Use watch_video to watch a public YouTube video and answer a question about it. Pass a ' +
+  'URL or an 11-character video ID. The default agentic mode suits long videos and specific ' +
+  'questions; use mode "static" with start and end (seconds) to look closely at one section.';
 
 export const SERVER_ICON_PATH = '/icon.svg';
-export const SERVER_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="MCP server">
+export const SERVER_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Video">
   <rect width="64" height="64" rx="12" fill="#111827"/>
-  <path d="M18 44V20h7l7 10 7-10h7v24h-7V31l-7 10-7-10v13z" fill="#fff"/>
+  <path d="M26 21v22l18-11z" fill="#fff"/>
 </svg>`;
 
 /**
  * Resources that only one runtime provides, handed in by the entry points: Workers bindings
  * such as KV, D1 and Durable Objects from `src/worker.ts`, and local stand-ins from
- * `src/bun.ts`. `createDeps` turns them into services. The sample needs none.
+ * `src/bun.ts`. `createDeps` turns them into services. This server keeps no state; it needs
+ * only a way to finish cleaning up after a caller has gone.
  */
-export type Runtime = Record<string, never>;
+export interface Runtime {
+  /**
+   * Keeps `promise` running after its request ends or its client disconnects: Workers'
+   * `waitUntil`. Bun keeps every promise running anyway, so there it does nothing.
+   */
+  waitUntil(promise: Promise<unknown>): void;
+}
 
 /** Everything tools, resources and prompts may use. Built once, shared by every request. */
 export interface Deps {
   config: Config;
   logger: Logger;
-  weather: WeatherService;
+  gemini: GeminiService;
 }
 
-export function createDeps(config: Config, logger: Logger, _runtime: Runtime): Deps {
+export function createDeps(config: Config, logger: Logger, runtime: Runtime): Deps {
+  const { GEMINI_API_KEY, GEMINI_MODEL, GEMINI_API_URL } = config.settings;
   return {
     config,
     logger,
-    weather: createWeatherService({ apiKey: config.settings.OPEN_METEO_API_KEY }),
+    gemini: createGeminiService({
+      apiKey: GEMINI_API_KEY,
+      model: GEMINI_MODEL,
+      baseUrl: GEMINI_API_URL,
+      // A watch the caller abandons is cancelled on Gemini, even after the caller has gone.
+      keepAlive: (promise) => runtime.waitUntil(promise),
+    }),
   };
 }
 
