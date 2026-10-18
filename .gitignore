@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+
+# Build output and tool state
+dist/
+.wrangler/
+*.tsbuildinfo
+
+# Logs
+*.log
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/mcp.json
