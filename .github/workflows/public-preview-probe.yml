@@ -1,0 +1,70 @@
+name: Public preview frame probe
+on:
+  push:
+    branches: [experiment/free-video-probe]
+    paths: ['.github/workflows/public-preview-probe.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: python -m pip install --disable-pip-version-check Pillow
+      - name: Inspect public preview images and player metadata
+        run: |
+          python - <<'PY'
+          import hashlib, io, json, re, urllib.request, urllib.parse
+          from PIL import Image
+          vid = 'k2OVPycHNfA'
+          def fetch(url, limit=8000000):
+              with urllib.request.urlopen(url, timeout=12) as r:
+                  data = r.read(limit+1)
+                  if len(data)>limit: raise ValueError('response too large')
+                  return data
+          def inspect_image(label, url):
+              try:
+                  data=fetch(url)
+                  with Image.open(io.BytesIO(data)) as im:
+                      im.load()
+                      pixels=im.convert('RGB').tobytes()
+                      print(label, 'OK', im.size, len(data), 'pixel_sha256', hashlib.sha256(pixels).hexdigest()[:20])
+              except Exception as e:
+                  print(label, 'UNAVAILABLE', type(e).__name__, str(e)[:150])
+          for name in ('hqdefault','maxresdefault','0','1','2','3'):
+              inspect_image(name, 'https://i.ytimg.com/vi/'+vid+'/'+name+'.jpg')
+          try:
+              page=fetch('https://www.youtube.com/watch?v='+vid).decode('utf-8',errors='replace')
+              m=re.search(r'ytInitialPlayerResponse\s*=\s*', page)
+              if not m:
+                  print('PLAYER_METADATA UNAVAILABLE')
+              else:
+                  player,_=json.JSONDecoder().raw_decode(page[m.end():])
+                  status=player.get('playabilityStatus',{}).get('status')
+                  print('PLAYER_STATUS',status)
+                  if status!='OK':
+                      print('Player did not allow playback; stopping player metadata probe.')
+                  else:
+                      spec=player.get('storyboards',{}).get('playerStoryboardSpecRenderer',{}).get('spec')
+                      tracks=player.get('captions',{}).get('playerCaptionsTracklistRenderer',{}).get('captionTracks',[])
+                      print('CAPTION_LANGUAGES', [t.get('languageCode') for t in tracks])
+                      print('STORYBOARD_SPEC_PRESENT', bool(spec))
+                      if spec:
+                          base,*levels=spec.split('|')
+                          for i,level in enumerate(levels):
+                              fields=level.split('#')
+                              if len(fields)<8: continue
+                              w,h,n,cols,rows,interval,name,sig=fields[:8]
+                              print('STORYBOARD_LEVEL',i,w,h,n,cols,rows,interval)
+                              if not interval.isdigit() or int(interval)==0: continue
+                              url=base.replace('$L',str(i)).replace('$N',name.replace('$M','0'))
+                              u=urllib.parse.urlparse(url)
+                              if u.scheme!='https' or not (u.hostname or '').endswith('.ytimg.com'): continue
+                              query=urllib.parse.parse_qsl(u.query,keep_blank_values=True)
+                              query.append(('sigh',sig))
+                              url=urllib.parse.urlunparse(u._replace(query=urllib.parse.urlencode(query)))
+                              inspect_image('STORYBOARD_SHEET_'+str(i),url)
+          except Exception as e:
+              print('PLAYER_PROBE UNAVAILABLE', type(e).__name__, str(e)[:150])
+          PY
