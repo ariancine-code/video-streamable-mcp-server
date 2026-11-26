@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 env:
   # Keep Wrangler offline apart from the deploy you never run here: no telemetry, no update check.
