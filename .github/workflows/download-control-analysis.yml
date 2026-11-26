@@ -1,0 +1,101 @@
+name: Audiovisual inspection of CC BY control
+on:
+  push:
+    branches: [experiment/free-video-probe]
+    paths: ['.github/workflows/download-control-analysis.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Install browser
+        run: |
+          python -m pip install --disable-pip-version-check playwright
+          python -m playwright install --with-deps chromium
+          sudo apt-get update -qq && sudo apt-get install -y ffmpeg >/dev/null
+      - name: Check normal public button on licensed control
+        run: |
+          python - <<'PY'
+          import json, re, pathlib, urllib.parse, subprocess, base64, hashlib, tempfile
+          from playwright.sync_api import sync_playwright
+          url='https://p.savenow.to/api/button/?'+urllib.parse.urlencode({'url':'https://www.youtube.com/watch?v=YE7VzlLtp-4','f':'360'})
+          blocked=re.compile(r'captcha|verify (?:that )?you|verify (?:that )?you are|not a robot|not a bot|human verification|sign in|log in|payment required|purchase|credit card',re.I)
+          with sync_playwright() as p:
+              browser=p.chromium.launch(headless=True)
+              context=browser.new_context(accept_downloads=True)
+              page=context.new_page()
+              downloads=[]
+              page.on('download', lambda d: downloads.append(d))
+              context.on('page', lambda pg: pg.on('download', lambda d: downloads.append(d)))
+              try:
+                  r=page.goto(url,wait_until='domcontentloaded',timeout=20000)
+                  print('HTTP',r.status if r else None)
+                  page.wait_for_timeout(3000)
+                  def inspect():
+                      body=page.locator('body').inner_text(timeout=5000)
+                      print('VISIBLE_TEXT',body[:1200])
+                      visible_challenge=bool(blocked.search(body)) or any('captcha' in (f.url or '').lower() or 'challenges.cloudflare.com' in (f.url or '').lower() for f in page.frames if f!=page.main_frame)
+                      return visible_challenge
+                  if inspect():
+                      print('STOP: verification or account/payment requirement')
+                  else:
+                      button=page.get_by_role('button',name=re.compile(r'^(?:Download(?: MP4(?: 360p)?| video| 360p)?|Start(?: download)?|Convert)$',re.I))
+                      link=page.get_by_role('link',name=re.compile(r'^Download(?: MP4(?: 360p)?| video| 360p)?$',re.I))
+                      candidate=next((loc for loc in (button,link) if loc.count()==1 and loc.is_visible() and loc.is_enabled()),None)
+                      if candidate is None:
+                          public_link=page.locator('a').filter(has_text='Download MP4 360p').filter(has_text='https://www.youtube.com/watch?v=YE7VzlLtp-4')
+                          if public_link.count()==1 and public_link.is_visible() and public_link.is_enabled(): candidate=public_link
+                      print('PUBLIC_CONTROLS',json.dumps(page.locator('button, a, [role=button], input[type=button], input[type=submit]').evaluate_all('els => els.filter(e=>e.getClientRects().length).slice(0,20).map(e=>({tag:e.tagName,role:e.getAttribute("role"),text:(e.innerText||e.value||"").trim().slice(0,180),disabled:!!e.disabled}))'),ensure_ascii=False))
+                      if candidate is None:
+                          label=page.get_by_text('Download MP4 360p',exact=True)
+                          if label.count()==1 and label.is_visible():
+                              print('LABEL_DOM',json.dumps(label.evaluate('e=>{let a=[];for(let i=0;e&&i<4;i++,e=e.parentElement)a.push({tag:e.tagName,role:e.getAttribute("role"),cursor:getComputedStyle(e).cursor,disabled:!!e.disabled,ariaDisabled:e.getAttribute("aria-disabled"),text:(e.innerText||"").trim().slice(0,180)});return a;}'),ensure_ascii=False))
+                              control=label.locator('xpath=ancestor-or-self::*[self::button or self::a or @role="button"][1]')
+                              if control.count()==1 and control.is_visible() and control.is_enabled(): candidate=control
+                              elif label.evaluate('e=>getComputedStyle(e).cursor==="pointer" && !e.closest("[disabled],[aria-disabled=true]")'): candidate=label
+                      if candidate is None:
+                          print('No unambiguous public download control; stopping')
+                      else:
+                          print('CLICK_PUBLIC_CONTROL',candidate.inner_text(timeout=5000)[:100])
+                          candidate.click(timeout=5000)
+                          clicked_final=False
+                          for _ in range(16):
+                              page.wait_for_timeout(2500)
+                              if inspect():
+                                  print('STOP: verification or account/payment requirement')
+                                  break
+                              if not clicked_final and not downloads:
+                                  final=page.locator('a,button,[role=button]').filter(has_text=re.compile(r'^\s*Download Now!\s*$',re.I))
+                                  if final.count()==1 and final.is_visible() and final.is_enabled():
+                                      print('CLICK_FINAL_PUBLIC_CONTROL',final.inner_text(timeout=5000)[:80])
+                                      final.click(timeout=5000)
+                                      clicked_final=True
+                              if downloads:
+                                  d=downloads[0]
+                                  print('DOWNLOAD_EVENT',d.suggested_filename)
+                                  if not re.search(r'\.(mp4|webm)$',d.suggested_filename,re.I):
+                                      d.cancel(); print('STOP: unexpected file type'); break
+                                  path=pathlib.Path(d.path())
+                                  with path.open('rb') as f: header=f.read(64)
+                                  valid=(header[4:8]==b'ftyp' or header[:4]==bytes.fromhex('1a45dfa3'))
+                                  print('MEDIA_CONTAINER_VALID',valid,'bytes',path.stat().st_size)
+                                  if valid:
+                                      probe=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_format','-show_streams','-of','json',str(path)]))
+                                      duration=float(probe['format']['duration'])
+                                      print('VIDEO_PROBE',json.dumps({'duration':duration,'streams':[{k:s.get(k) for k in ('codec_type','codec_name','width','height','channels','sample_rate')} for s in probe['streams']]}))
+                                      print('FILE_SHA256',hashlib.sha256(path.read_bytes()).hexdigest())
+                                      with tempfile.TemporaryDirectory() as td:
+                                          for index,frac in enumerate([.035,.10,.18,.26,.34,.43,.52,.61,.70,.79,.88,.95]):
+                                              sec=round(duration*frac,2)
+                                              out=pathlib.Path(td)/f'{index}.jpg'
+                                              subprocess.run(['ffmpeg','-v','error','-ss',str(sec),'-i',str(path),'-frames:v','1','-vf','scale=320:-2','-q:v','5',str(out)],check=True)
+                                              print('FRAME_JPEG',sec,base64.b64encode(out.read_bytes()).decode(),flush=True)
+                                      print('FRAME_ANALYSIS_READY')
+                                  break
+                          else: print('DOWNLOAD_NOT_OBSERVED')
+              except Exception as e: print('UNVERIFIED',type(e).__name__,str(e)[:220])
+              finally: browser.close()
+          PY
