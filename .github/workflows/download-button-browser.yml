@@ -43,6 +43,9 @@ jobs:
                       button=page.get_by_role('button',name=re.compile(r'^(?:Download(?: MP4(?: 360p)?| video| 360p)?|Start(?: download)?|Convert)$',re.I))
                       link=page.get_by_role('link',name=re.compile(r'^Download(?: MP4(?: 360p)?| video| 360p)?$',re.I))
                       candidate=next((loc for loc in (button,link) if loc.count()==1 and loc.is_visible() and loc.is_enabled()),None)
+                      if candidate is None:
+                          public_link=page.get_by_role('link',name=re.compile(r'^Download MP4 360p\s+https://www\.youtube\.com/watch\?v=YE7VzlLtp-4$',re.I))
+                          if public_link.count()==1 and public_link.is_visible() and public_link.is_enabled(): candidate=public_link
                       print('PUBLIC_CONTROLS',json.dumps(page.locator('button, a, [role=button], input[type=button], input[type=submit]').evaluate_all('els => els.filter(e=>e.getClientRects().length).slice(0,20).map(e=>({tag:e.tagName,role:e.getAttribute("role"),text:(e.innerText||e.value||"").trim().slice(0,180),disabled:!!e.disabled}))'),ensure_ascii=False))
                       if candidate is None:
                           label=page.get_by_text('Download MP4 360p',exact=True)
