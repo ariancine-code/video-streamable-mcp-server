@@ -1,0 +1,43 @@
+name: Free cloud video processing control
+on:
+  push:
+    branches: [experiment/free-video-probe]
+    paths: ['.github/workflows/video-processing-control.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch CC0 video and extract indexed frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          curl -fL --max-time 25 --max-filesize 10000000 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4' -o sample.mp4
+          ffprobe -v error -show_format -show_streams -of json sample.mp4 > output/metadata.json
+          python - <<'PY'
+          import json,subprocess,hashlib,pathlib
+          meta=json.load(open('output/metadata.json'))
+          duration=float(meta['format']['duration'])
+          v=next(s for s in meta['streams'] if s['codec_type']=='video')
+          frames=[]
+          for t in (0,duration/4,duration/2,duration*3/4):
+              name=f'frame_{round(t*1000):06d}.jpg'
+              p=pathlib.Path('output')/name
+              subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-ss',str(t),'-i','sample.mp4','-frames:v','1','-q:v','2','-y',str(p)],check=True)
+              data=p.read_bytes()
+              frames.append({'seconds':round(t,3),'file':name,'bytes':len(data),'sha256':hashlib.sha256(data).hexdigest()})
+          manifest={'source':'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4','duration_seconds':duration,'width':v['width'],'height':v['height'],'audio_present':any(s['codec_type']=='audio' for s in meta['streams']),'frames':frames}
+          pathlib.Path('output/manifest.json').write_text(json.dumps(manifest,indent=2))
+          print(json.dumps(manifest,indent=2))
+          assert len(set(f['sha256'] for f in frames))==4
+          print('CONTROL PASSED: 4 distinct frames with timestamps')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cc0-video-control
+          path: output/
+          retention-days: 1
