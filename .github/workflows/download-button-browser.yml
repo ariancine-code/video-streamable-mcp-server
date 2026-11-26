@@ -43,6 +43,14 @@ jobs:
                       button=page.get_by_role('button',name=re.compile(r'^(?:Download(?: MP4(?: 360p)?| video| 360p)?|Start(?: download)?|Convert)$',re.I))
                       link=page.get_by_role('link',name=re.compile(r'^Download(?: MP4(?: 360p)?| video| 360p)?$',re.I))
                       candidate=next((loc for loc in (button,link) if loc.count()==1 and loc.is_visible() and loc.is_enabled()),None)
+                      print('PUBLIC_CONTROLS',json.dumps(page.locator('button, a, [role=button], input[type=button], input[type=submit]').evaluate_all('els => els.filter(e=>e.getClientRects().length).slice(0,20).map(e=>({tag:e.tagName,role:e.getAttribute("role"),text:(e.innerText||e.value||"").trim().slice(0,180),disabled:!!e.disabled}))'),ensure_ascii=False))
+                      if candidate is None:
+                          label=page.get_by_text('Download MP4 360p',exact=True)
+                          if label.count()==1 and label.is_visible():
+                              print('LABEL_DOM',json.dumps(label.evaluate('e=>{let a=[];for(let i=0;e&&i<4;i++,e=e.parentElement)a.push({tag:e.tagName,role:e.getAttribute("role"),cursor:getComputedStyle(e).cursor,disabled:!!e.disabled,ariaDisabled:e.getAttribute("aria-disabled"),text:(e.innerText||"").trim().slice(0,180)});return a;}'),ensure_ascii=False))
+                              control=label.locator('xpath=ancestor-or-self::*[self::button or self::a or @role="button"][1]')
+                              if control.count()==1 and control.is_visible() and control.is_enabled(): candidate=control
+                              elif label.evaluate('e=>getComputedStyle(e).cursor==="pointer" && !e.closest("[disabled],[aria-disabled=true]")'): candidate=label
                       if candidate is None:
                           print('No unambiguous public download control; stopping')
                       else:
