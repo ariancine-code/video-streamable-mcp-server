@@ -40,8 +40,8 @@ jobs:
                   if inspect():
                       print('STOP: verification or account/payment requirement')
                   else:
-                      button=page.get_by_role('button',name=re.compile(r'^(?:Download(?: MP4| video| 360p)?|Start(?: download)?|Convert)$',re.I))
-                      link=page.get_by_role('link',name=re.compile(r'^Download(?: MP4| video| 360p)?$',re.I))
+                      button=page.get_by_role('button',name=re.compile(r'^(?:Download(?: MP4(?: 360p)?| video| 360p)?|Start(?: download)?|Convert)$',re.I))
+                      link=page.get_by_role('link',name=re.compile(r'^Download(?: MP4(?: 360p)?| video| 360p)?$',re.I))
                       candidate=next((loc for loc in (button,link) if loc.count()==1 and loc.is_visible() and loc.is_enabled()),None)
                       if candidate is None:
                           print('No unambiguous public download control; stopping')
