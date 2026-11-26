@@ -28,6 +28,7 @@ jobs:
               page=context.new_page()
               downloads=[]
               page.on('download', lambda d: downloads.append(d))
+              context.on('page', lambda pg: pg.on('download', lambda d: downloads.append(d)))
               try:
                   r=page.goto(url,wait_until='domcontentloaded',timeout=20000)
                   print('HTTP',r.status if r else None)
@@ -59,11 +60,18 @@ jobs:
                       else:
                           print('CLICK_PUBLIC_CONTROL',candidate.inner_text(timeout=5000)[:100])
                           candidate.click(timeout=5000)
-                          for _ in range(8):
+                          clicked_final=False
+                          for _ in range(16):
                               page.wait_for_timeout(2500)
                               if inspect():
                                   print('STOP: verification or account/payment requirement')
                                   break
+                              if not clicked_final and not downloads:
+                                  final=page.locator('a,button,[role=button]').filter(has_text=re.compile(r'^\s*Download Now!\s*$',re.I))
+                                  if final.count()==1 and final.is_visible() and final.is_enabled():
+                                      print('CLICK_FINAL_PUBLIC_CONTROL',final.inner_text(timeout=5000)[:80])
+                                      final.click(timeout=5000)
+                                      clicked_final=True
                               if downloads:
                                   d=downloads[0]
                                   print('DOWNLOAD_EVENT',d.suggested_filename)
